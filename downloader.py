@@ -7,8 +7,10 @@ class Downloader:
         self.provider = provider
     
     def _save(self, data: pd.DataFrame, symbol, time_frame, time_range):
-        # TODO: make name nice?
-        name = self.provider.__class__.__name__ + str(symbol) + time_frame + str(time_range) + ".csv"
+        base, quote = symbol
+        start, end = time_range
+
+        name = f"{self.provider.__class__.__name__}_{base}{quote}_{time_frame}_{start}_{end}.csv"
         data.to_csv(name)
 
     def download(self, symbol, time_frame, time_range):
