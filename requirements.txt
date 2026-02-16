@@ -1,0 +1,7 @@
+pandas
+
+dotenv
+
+requests
+polygon-api-client
+yfinance
