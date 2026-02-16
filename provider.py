@@ -21,14 +21,23 @@ time_range: tuple of two datetimes
 """
 
 class DataProvider:
-    def __init__(self, api_key):
-        self.api_key = api_key
+    REQUIRED_INDEX_NAME = "datetime"
+    REQUIRED_COLUMNS = ["open", "high", "low", "close", "volume"]
 
-    def _normalize(self, df: pd.DataFrame) -> pd.DataFrame:
-        raise NotImplementedError
+    def __init__(self, api_key):
+        self.api_key = api_key    
 
     def get(self, symbol: tuple, time_frame: str, time_range: tuple) -> pd.DataFrame:
         raise NotImplementedError
+    
+    def _normalize(self, df: pd.DataFrame) -> pd.DataFrame:
+        raise NotImplementedError
+    
+    def _validate(self, df):
+        if df.index.name != self.REQUIRED_INDEX_NAME \
+            or not all(col in df.columns for col in self.REQUIRED_COLUMNS):
+            raise ValueError("Schema mismatch")
+        return df
 
 
 class AlphaVantage(DataProvider):
@@ -37,9 +46,10 @@ class AlphaVantage(DataProvider):
 
     def _normalize(self, res) -> pd.DataFrame:
         df = pd.read_csv(StringIO(res.text), index_col="timestamp", parse_dates=True)
-        df = df.sort_index()
         if "volume" not in df.columns:
             df["volume"] = 0
+        df.index.name = "datetime"
+        df = df.sort_index()
         return df
 
     def get(self, symbol, time_frame, time_range):
@@ -63,7 +73,8 @@ class AlphaVantage(DataProvider):
         if content_type and "json" in content_type.lower():
             raise ValueError(f"AlphaVantage: {res.json()}")
 
-        return self._normalize(res)
+        df = self._normalize(res)
+        return self._validate(df)
 
 
 class Massive(DataProvider):
@@ -72,7 +83,10 @@ class Massive(DataProvider):
 
     def _normalize(self, aggs):
         df = pd.DataFrame(aggs)
+        if "volume" not in df.columns:
+            df["volume"] = 0
         df.index = pd.to_datetime(df["timestamp"], unit="ms")
+        df.index.name = "datetime"
         df.drop(["vwap", "timestamp", "transactions", "otc"], axis=1, inplace=True)
         return df
 
@@ -87,7 +101,9 @@ class Massive(DataProvider):
         ))
         if not aggs:
             raise ValueError("Massive: data not downloaded")
-        return self._normalize(aggs)
+        
+        df = self._normalize(aggs)
+        return self._validate(df)
 
 
 class TwelveData(DataProvider):
@@ -114,4 +130,5 @@ class TwelveData(DataProvider):
         if not res.ok:
             raise ValueError("TwelveData: data not downloaded")
 
-        return self._normalize(res)
+        df = self._normalize(res)
+        return self._validate(df)
