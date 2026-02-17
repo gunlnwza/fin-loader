@@ -22,6 +22,66 @@ time_range: tuple of two times
 (2026-02-15, 2026-02-16)
 """
 
+class Symbol:
+    def __init__(self):
+        pass
+
+class Timeframe:
+    """
+    Supported timeframes:
+    - 1m, 5m, 15m, 30m
+    - 1h, 4h
+    - 1d
+    - 1w
+    - 1M
+    """
+    SECOND = "second"
+    MINUTE = "minute"
+    HOUR = "hour"
+    DAY = "day"
+    WEEK = "week"
+    MONTH = "month"
+
+    def __init__(self, length: int, unit: str | None = None):
+        self.length = length
+        self.unit = self._match_unit(unit)
+        self._validate()
+    
+    def __repr__(self):
+        return f"Timeframe({self.length}, {self.unit})"
+
+    def _match_unit(self, unit: str):
+        if unit in (
+            Timeframe.SECOND, Timeframe.MINUTE, Timeframe.HOUR,
+            Timeframe.DAY, Timeframe.WEEK, Timeframe.MONTH
+        ):
+            return unit
+
+        if not (len(unit) == 1 and unit[0] in "smhdwM"):
+            raise ValueError("Cannot map shorthand to unit")
+        return {
+            's': Timeframe.SECOND,
+            'm': Timeframe.MINUTE,
+            'h': Timeframe.HOUR,
+            'd': Timeframe.DAY,
+            'w': Timeframe.WEEK,
+            'M': Timeframe.MONTH
+        }[unit[0]]
+
+    def _validate(self):
+        if not (
+            (self.unit == Timeframe.MINUTE and self.length in (1, 5, 15, 30))
+            or (self.unit == Timeframe.HOUR and self.length in (1, 4))
+            or (self.unit == Timeframe.DAY and self.length in (1,))
+            or (self.unit == Timeframe.WEEK and self.length in (1,))
+            or (self.unit == Timeframe.MONTH and self.length in (1,))
+        ):
+            raise ValueError(f"Timeframe not supported: '{self}'")
+        
+        if not isinstance(self.length, int):
+            raise ValueError(f"Invalid Timeframe length: '{self}'")
+
+
 class DataProvider(ABC):
     REQUIRED_INDEX_NAME = "time"
     REQUIRED_COLUMNS = ["open", "high", "low", "close", "volume"]
@@ -29,13 +89,19 @@ class DataProvider(ABC):
     def __init__(self, api_key):
         self.api_key = api_key    
 
+    def get(self, symbol: Symbol, tf: Timeframe) -> pd.DataFrame:
+        """Get the oldest data `DataProvider` can find"""
+        raw = self._get_data_by_api(symbol, tf)
+        df = self._normalize(raw)
+        return self._validate(df)
+
     @abstractmethod
-    def get(self, symbol: tuple, time_frame: str, time_range: tuple) -> pd.DataFrame:
-        raise NotImplementedError
-    
+    def _get_data_by_api(self, symbol: Symbol, tf: Timeframe):
+        pass
+
     @abstractmethod
     def _normalize(self, df: pd.DataFrame) -> pd.DataFrame:
-        raise NotImplementedError
+        pass
 
     def _validate(self, df):
         if df.index.name != self.REQUIRED_INDEX_NAME \
@@ -136,3 +202,8 @@ class TwelveData(DataProvider):
 
         df = self._normalize(res)
         return self._validate(df)
+
+
+if __name__ == "__main__":
+    tf = Timeframe(5, 'minute')
+    print(tf)
