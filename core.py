@@ -202,7 +202,7 @@ class Timeframe:
     - 1M
     """
     SECOND = "second"
-    MINUTE = "minute"
+    MINUTE = "min"
     HOUR = "hour"
     DAY = "day"
     WEEK = "week"

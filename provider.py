@@ -17,32 +17,44 @@ class DataProvider(ABC):
         self.name = name
         self.api_key = api_key
 
-    def get(self, symbol: ForexSymbol, tf: Timeframe, time_start: str | None = None) -> pd.DataFrame:
+    def get(self, symbol: ForexSymbol, tf: Timeframe, time_start_utc: pd.Timestamp) -> pd.DataFrame:
         """
-        if `time_start` is `None`:
-            get the oldest data `DataProvider` can find
-        else:
-            get data from `time_start` onward
+        time_start_utc must be in UTC, every pd.Timestamp must be in UTC!
         """
-        if time_start is not None:
-            time_start = pd.Timestamp(time_start)
+        self._validate_input(time_start_utc)
         logging.info(f"Calling {self.name} API")
-        raw = self._get_data_by_api(symbol, tf, time_start)
+        raw = self._call_api(symbol, tf, time_start_utc)
         df = self._normalize(raw)
-        return self._validate(df)
+        return self._validate_schema(df)
+
+    def _validate_input(self, time_start_utc: pd.Timestamp):
+        # symbol, and tf are already validated on construction
+
+        if time_start_utc.tzinfo is None:
+            raise ValueError("Must be timezone-aware UTC")
+        if str(time_start_utc.tz) != "UTC":
+            raise ValueError("Must pass UTC timestamp")
 
     @abstractmethod
-    def _get_data_by_api(self, s: ForexSymbol, tf: Timeframe, time_start: pd.Timestamp | None):
+    def _call_api(self, s: ForexSymbol, tf: Timeframe, time_start_utc: pd.Timestamp):
         pass
 
     @abstractmethod
     def _normalize(self, df: pd.DataFrame) -> pd.DataFrame:
         pass
 
-    def _validate(self, df):
+    def _validate_schema(self, df):
         if df.index.name != self.REQUIRED_INDEX_NAME \
             or not all(col in df.columns for col in self.REQUIRED_COLUMNS):
             raise ValueError("Schema mismatch")
+        
+        if df.index.tz is None:
+            raise ValueError("Schema's index must be UTC")
+        if not df.index.is_monotonic_increasing:
+            raise ValueError("Schema's index must be sorted")
+        if df.index.has_duplicates:
+            raise ValueError("Duplicate timestamps detected in schema")
+
         return df
 
 
@@ -50,28 +62,30 @@ class AlphaVantage(DataProvider):
     def __init__(self, api_key):
         super().__init__("alpha_vantage", api_key)
 
-    def _get_data_by_api(self, s: ForexSymbol, tf: Timeframe, time_start: pd.Timestamp | None):
-        if time_start is None:
-            pass
-        time_start = pd.Timestamp.now() - pd.Timedelta(days=42)  # TODO
-
-        time_end = pd.Timestamp.now()
+    def _get_api_outputsize(self, time_start_utc: pd.Timestamp) -> str:
         DIFF_DAYS_TO_DOWNLOAD_FULL = 90
-        if time_end - time_start >= pd.Timedelta(days=DIFF_DAYS_TO_DOWNLOAD_FULL):
-            outputsize = "full"
+        time_end_utc = pd.Timestamp.now(tz="UTC")
+        if time_end_utc - time_start_utc >= pd.Timedelta(days=DIFF_DAYS_TO_DOWNLOAD_FULL):
+            return "full"
         else:
-            outputsize = "compact"
-        
-        functions = {Timeframe.DAY: 'FX_DAILY', Timeframe.WEEK: 'FX_WEEKLY', Timeframe.MONTH: 'FX_MONTHLY'}
+            return "compact"
+
+    def _get_api_function(self, tf: Timeframe) -> str:
+        functions = {
+            Timeframe.DAY: 'FX_DAILY',
+            Timeframe.WEEK: 'FX_WEEKLY',
+            Timeframe.MONTH: 'FX_MONTHLY'
+        }
         if tf.unit not in functions:
             raise ValueError("AlphaVantage: unsupported Timeframe")
-        function_ = functions[tf.unit]
+        return functions[tf.unit]
 
+    def _call_api(self, s: ForexSymbol, tf: Timeframe, time_start_utc: pd.Timestamp):
         params = {
             "from_symbol": s.base,
             "to_symbol": s.quote,
-            "outputsize": outputsize,
-            "function": function_,
+            "outputsize": self._get_api_outputsize(time_start_utc),
+            "function": self._get_api_function(tf),
             "datatype": "csv",
             "apikey": self.api_key
         }
@@ -97,21 +111,16 @@ class AlphaVantage(DataProvider):
 class Massive(DataProvider):
     def __init__(self, api_key):
         super().__init__("massive", api_key)
-    
-    def _get_data_by_api(self, s: ForexSymbol, tf: Timeframe, time_start: pd.Timestamp | None):
+
+    def _call_api(self, s: ForexSymbol, tf: Timeframe, time_start_utc: pd.Timestamp):
         client = RESTClient(self.api_key)
 
-        if time_start is None:
-            pass  # TODO
-        time_start = pd.Timestamp.now() - pd.Timedelta(days=42)
-        time_end = pd.Timestamp.now()
-
         aggs = list(client.list_aggs(
-            f"C:{s.base}{s.quote}",
-            tf.length,
-            tf.unit,
-            time_start,
-            time_end,
+            ticker=f"C:{s.base}{s.quote}",
+            multiplier=tf.length,
+            timespan=tf.unit,
+            from_=time_start_utc,
+            to=pd.Timestamp.now(tz="UTC"),
             adjusted="true",
             sort="asc"
         ))
@@ -134,20 +143,10 @@ class TwelveData(DataProvider):
     def __init__(self, api_key):
         super().__init__("twelve_data", api_key)
 
-    def _get_data_by_api(self, s: ForexSymbol, tf: Timeframe, time_start: pd.Timestamp | None):
-        time_end = pd.Timestamp.now()
+    def _get_api_symbol(self, s: ForexSymbol):
+        return f"{s.base}/{s.quote}"  # must have / in-between
 
-        # 1 <= outputsize <= 5000, default is 30
-        outputsize = 30
-        if time_start is None:  # TODO:
-            # outputsize = 5000
-            pass
-        else:
-            # outputsize = time_end - time_start
-            pass
-
-        # TODO: Or I could just pass in date instead? Twelve Data support it!
-
+    def _get_api_interval(self, tf: Timeframe):
         unit = {
             Timeframe.MINUTE: "min",
             Timeframe.HOUR: "h",
@@ -155,10 +154,17 @@ class TwelveData(DataProvider):
             Timeframe.WEEK: "week",
             Timeframe.MONTH: "month", 
         }[tf.unit]
+        return f"{tf.length}{unit}"
+
+    def _get_api_start_date(self, time_start_utc: pd.Timestamp):
+        return time_start_utc.strftime("%Y-%m-%dT%H:%M:%S")
+
+    def _call_api(self, s: ForexSymbol, tf: Timeframe, time_start_utc: pd.Timestamp):
         params = {
-            "symbol":f"{s.base}/{s.quote}",  # must have / in-between
-            "interval":f"{tf.length}{unit}",
-            "outputsize": outputsize,  
+            "symbol": self._get_api_symbol(s),
+            "interval": self._get_api_interval(tf),
+            "start_date": self._get_api_start_date(time_start_utc),
+            "timezone": "UTC",
             "format": "CSV",
             "apikey": self.api_key
         }
@@ -169,8 +175,19 @@ class TwelveData(DataProvider):
         return res
 
     def _normalize(self, res):
-        df = pd.read_csv(StringIO(res.text), sep=";", index_col="datetime", parse_dates=True)
+        logging.debug("TwelveData._normalize() | res.text")
+        logging.debug(f"\n{res.text}")
+        df = pd.read_csv(
+            StringIO(res.text),
+            sep=";",
+            index_col="datetime",
+            parse_dates=True
+        )
         if "volume" not in df.columns:
             df["volume"] = 0
         df.index.name = "time"
+        df.index = pd.to_datetime(df.index, utc=True)
+        df = df.sort_index(ascending=True)
+        logging.debug("TwelveData._normalize() | df")
+        logging.debug(f"\n{df}")
         return df
