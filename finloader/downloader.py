@@ -107,8 +107,6 @@ class Downloader:
             existing.index = pd.to_datetime(existing.index, utc=True)
             old_len = len(existing)
 
-            logger.debug(f"\n\n{data.tail()}\n")
-
             # Concatenate and remove duplicate timestamps (keep latest)
             combined = pd.concat([existing, data])
             combined = combined[~combined.index.duplicated(keep="last")]

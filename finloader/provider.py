@@ -218,8 +218,6 @@ class TwelveData(DataProvider):
         if not res.ok:
             raise ValueError("TwelveData: data not downloaded")
 
-        # logger.debug(f"\nres.text[:300]\n{res.text[:300]}")
-
         content_type = res.headers.get("Content-Type", "")
         if "json" in content_type.lower():
             data = res.json()

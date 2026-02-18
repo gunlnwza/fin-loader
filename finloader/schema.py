@@ -12,12 +12,10 @@ def validate_data(df):
     """Check integrity and schema correctness"""
 
     if not isinstance(df, pd.DataFrame):
-        logger.debug(f"df:\n{df}")
         raise ValueError("Invalid data type, not a pd.DataFrame")        
 
     if df.index.name != REQUIRED_INDEX_NAME \
         or not all(col in df.columns for col in REQUIRED_COLUMNS):
-        logging.error(f"Schema mismatch: \n{df}")
         raise ValueError("Schema mismatch")
     
     if df.index.tz is None:
