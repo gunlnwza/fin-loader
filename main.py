@@ -68,6 +68,9 @@ def main():
         sys.exit(e)
     except KeyboardInterrupt as e:
         sys.exit(e)
+    except e:
+        logger.critical(f"Unhandled error: {e}")
+        sys.exit(e)
 
 
 if __name__ == "__main__":
