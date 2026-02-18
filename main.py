@@ -1,6 +1,7 @@
 import sys
 import argparse
 import logging
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -8,45 +9,62 @@ from finloader.core import ForexSymbol, Timeframe
 from finloader.provider import DataProvider
 from finloader.downloader import RetriesDownloader
 
+logger = logging.getLogger("finloader.cli")
+logger.setLevel(logging.DEBUG)
+
+
+def setup_logging():
+    LOG_DIR = Path("logs")
+    LOG_DIR.mkdir(exist_ok=True)
+    
+    log_filepath = LOG_DIR / "finloader.log"
+
+    logging.basicConfig(
+        filename=log_filepath,
+        filemode='a',
+        level=logging.INFO,
+        format='%(asctime)s | %(levelname)s | %(name)s | %(message)s',
+        datefmt='%m-%d-%Y %H:%M:%S'
+    )
+
+    # Silence noisy third-party libraries
+    noisy_libs = [
+        "urllib3",
+        "urllib3.connectionpool",
+        "requests",
+        "chardet",
+        "charset_normalizer",
+    ]
+    for lib in noisy_libs:
+        logging.getLogger(lib).setLevel(logging.ERROR)
+
+
+def parse_inputs():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("provider")
+    parser.add_argument("base")
+    parser.add_argument("quote")
+    parser.add_argument("tf_length", type=int)
+    parser.add_argument("tf_unit")
+    return parser.parse_args()
+
 
 def main():
     load_dotenv()
+    setup_logging()
 
-    logging.basicConfig(
-        filename='app.log',
-        filemode='a',
-        level=logging.DEBUG,
-        format='%(asctime)s | %(levelname)-8s | %(message)s',
-        datefmt='%m/%d/%Y %I:%M:%S'
-    )
-    logging.info("")
-    logging.info(f"python3 {' '.join(sys.argv)}")
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("provider")
-    parser.add_argument("--major", action="store_true")
-    parser.add_argument("--base")
-    parser.add_argument("--quote")
-    parser.add_argument("--tf_length", type=int, required=True)
-    parser.add_argument("--tf_unit", required=True)
-    args = parser.parse_args()
+    args = parse_inputs()
+    logger.info("")
+    logger.info(f"python3 {' '.join(sys.argv)}")
 
     provider = DataProvider.from_name(args.provider)
     downloader = RetriesDownloader(provider)
+    s = ForexSymbol(args.base, args.quote)
     tf = Timeframe(args.tf_length, args.tf_unit)
-
     try:
-        if args.major:
-            for base, quote in ForexSymbol.MAJOR_PAIRS:
-                s = ForexSymbol(base, quote)
-                downloader.download(s, tf)
-        else:
-            if args.quote is None:
-                raise ValueError("Quote currency must be provided unless using 'major'")
-            s = ForexSymbol(args.base, args.quote)
-            downloader.download(s, tf)
+        downloader.download(s, tf)
     except ConnectionError as e:
-        logging.error("Not connected to the internet")
+        logger.error(e)
         sys.exit(e)
 
 

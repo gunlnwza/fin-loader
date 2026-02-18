@@ -1,6 +1,6 @@
-class TemporaryRateLimit(TimeoutError):
+class TemporaryRateLimit(Exception):
     pass
 
 
-class DailyRateLimit(TimeoutError):
+class DailyRateLimit(Exception):
     pass

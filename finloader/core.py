@@ -162,16 +162,6 @@ class ForexSymbol:
         'XAG': 'Silver',
     }
 
-    MAJOR_PAIRS = [
-        ("EUR", "USD"),
-        ("GBP", "USD"),
-        ("USD", "JPY"),
-        ("USD", "CHF"),
-        ("AUD", "USD"),
-        ("NZD", "USD"),
-        ("USD", "CAD"),
-    ]
-
     __slots__ = ("base", "quote")
 
     def __init__(self, base: str, quote: str):
@@ -222,9 +212,9 @@ class Timeframe:
         self.length = length
         self.unit = unit
 
-        self._validate()  # assert that length and unit are correct
+        self._validate_length_and_unit()
 
-    def _validate(self):
+    def _validate_length_and_unit(self):
         if not (
             (self.unit == Timeframe.MINUTE and self.length in (1, 5, 15, 30))
             or (self.unit == Timeframe.HOUR and self.length in (1, 4))

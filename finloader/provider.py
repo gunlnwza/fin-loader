@@ -9,7 +9,11 @@ from polygon import RESTClient
 import urllib3
 
 from .core import ForexSymbol, Timeframe
+from .exceptions import TemporaryRateLimit, DailyRateLimit
 from .schema import validate_data
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 
 class DataProvider(ABC):
@@ -40,8 +44,7 @@ class DataProvider(ABC):
         """
         self._validate_input(time_start_utc)
 
-        logging.info(f"Calling {self.name} API for: {s} ({tf})")
-        logging.debug(f"requested-by-Downloader time_start_utc = {time_start_utc}")
+        logger.info(f"Calling {self.name} API for: {s} ({tf})")
         raw = self._call_api(s, tf, time_start_utc)
 
         df = self._normalize(raw)
@@ -84,9 +87,11 @@ class AlphaVantage(DataProvider):
 
         time_end_utc = pd.Timestamp.now(tz="UTC")
         if time_end_utc - time_start_utc >= pd.Timedelta(days=DIFF_DAYS_TO_DOWNLOAD_FULL):
-            return "full"
+            outputsize = "full"
         else:
-            return "compact"
+            outputsize = "compact"
+        logger.debug(f"using outputsize={outputsize}")
+        return outputsize
 
     def _call_api(self, s: ForexSymbol, tf: Timeframe, time_start_utc: pd.Timestamp):
         params = {
@@ -97,16 +102,16 @@ class AlphaVantage(DataProvider):
             "datatype": "csv",
             "apikey": self.api_key
         }
-        try:
-            res = requests.get("https://www.alphavantage.co/query", params, timeout=10)
-        except requests.exceptions.ConnectionError:
-            raise ConnectionError("AlphaVantage: not connected to the internet")
+        res = requests.get("https://www.alphavantage.co/query", params, timeout=10)
         if not res.ok:
             raise ValueError("AlphaVantage: data not downloaded")
 
-        content_type = res.headers.get("Content-Type", "")
-        if content_type and "json" in content_type.lower():
-            raise ValueError(f"AlphaVantage: {res.json()}")
+        content_type = str(res.headers.get("Content-Type", ""))
+        if "json" in content_type.lower():
+            data = res.json()
+            if "Information" in data:
+                raise TemporaryRateLimit("AlphaVantage: temporary rate limited")
+            raise ValueError(f"AlphaVantage: {data}")
 
         return res
     
@@ -152,7 +157,7 @@ class Massive(DataProvider):
                 sort="asc"
             ))
         except urllib3.exceptions.MaxRetryError:
-            raise ConnectionError("Massive: not connected to the internet")
+            raise TemporaryRateLimit("Massive: temporary rate limited")
 
         if not aggs:
             raise ValueError("Massive: data not downloaded")
@@ -198,25 +203,36 @@ class TwelveData(DataProvider):
             "format": "CSV",
             "apikey": self.api_key
         }
-        try:
-            res = requests.get("https://api.twelvedata.com/time_series", params, timeout=10)
-        except requests.exceptions.ConnectionError:
-            raise ConnectionError("TwelveData: not connected to the internet")
-
+        res = requests.get("https://api.twelvedata.com/time_series", params, timeout=10)
         if not res.ok:
             raise ValueError("TwelveData: data not downloaded")
+
+        logger.debug(f"\nres.text[:300]\n{res.text[:300]}")
+
+        content_type = res.headers.get("Content-Type", "")
+        if "json" in content_type.lower():
+            data = res.json()
+            match data["code"]:
+                case 400:  # No data is available on the specified dates
+                    return None
+                case 429:  # rate limited
+                    raise TemporaryRateLimit("TwelveData: temporary rate limited")
 
         return res
 
     def _normalize(self, res):
-        df = pd.read_csv(
-            StringIO(res.text),
-            sep=";",
-            index_col="datetime",
-            parse_dates=True
-        )
-        if "volume" not in df.columns:
-            df["volume"] = 0
+        if res is None:
+            df = pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
+        else:
+            df = pd.read_csv(
+                StringIO(res.text),
+                sep=";",
+                index_col="datetime",
+                parse_dates=True
+            )
+            if "volume" not in df.columns:
+                df["volume"] = 0
+
         df.index.name = "time"
         df.index = pd.to_datetime(df.index, utc=True)
         df = df.sort_index(ascending=True)

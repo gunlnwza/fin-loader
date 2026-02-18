@@ -2,12 +2,16 @@ from pathlib import Path
 import logging
 import time
 
+import requests
 import pandas as pd
 
 from .core import ForexSymbol, Timeframe
 from .provider import DataProvider
 from .exceptions import TemporaryRateLimit, DailyRateLimit
 from .schema import validate_data
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 
 class Downloader:
@@ -45,16 +49,16 @@ class Downloader:
         df.index = pd.to_datetime(df.index, utc=True)
         return df.index[-1]
 
-    def _get_time_start(self, s: ForexSymbol, tf: Timeframe):
+    def _get_time_start_utc(self, s: ForexSymbol, tf: Timeframe):
         DEFAULT_TIME_START = pd.Timestamp("2000-01-01", tz="UTC")
 
         filepath = self._get_filepath(s, tf)
         if not filepath.exists():
             return DEFAULT_TIME_START
 
-        time_start = self._last_time_in_file(filepath)
-        logging.debug(f"time_start: {time_start}")
-        return time_start
+        time_start_utc = self._last_time_in_file(filepath)
+        logger.debug(f"requested time_start_utc = {time_start_utc}")
+        return time_start_utc
     
     ###########################################################################
     # Main funcs
@@ -67,17 +71,28 @@ class Downloader:
         - Download everything if file does not exist.
         - Download only from latest data if file exists.
         """
-        time_start = self._get_time_start(s, tf)
-        data = self._get_data(s, tf, time_start, **kwargs)
+
+        logger.debug("Checking internet connection...")  # DataProvider's assumption: there is a connection
+        try:
+            requests.get("https://google.com", timeout=3)
+        except requests.exceptions.ConnectionError:
+            raise ConnectionError("Not connected to the internet")
+
+        time_start_utc = self._get_time_start_utc(s, tf)
+        data = self._get_data(s, tf, time_start_utc, **kwargs)
         self._save(data, s, tf)
 
-    def _get_data(self, s: ForexSymbol, tf: Timeframe, time_start: pd.Timestamp) -> pd.DataFrame:
+    def _get_data(self, s: ForexSymbol, tf: Timeframe, time_start_utc: pd.Timestamp) -> pd.DataFrame:
         """Sub-class must implement _get_data()"""
-        data = self.provider.get(s, tf, time_start)
+        data = self.provider.get(s, tf, time_start_utc)
         return data
 
     def _save(self, data: pd.DataFrame, s: ForexSymbol, tf: Timeframe):
         validate_data(data)
+
+        if len(data) == 0:
+            logger.info(f"'{self._get_filename(s, tf)}' is up to date")
+            return
 
         filepath = self._get_filepath(s, tf)
         if filepath.exists():
@@ -93,7 +108,7 @@ class Downloader:
 
         validate_data(combined)
         combined.to_csv(filepath)
-        logging.info(f"Save '{self._get_filename(s, tf)}'")
+        logger.info(f"Save '{self._get_filename(s, tf)}'")
 
 
 class RetriesDownloader(Downloader):
@@ -106,7 +121,7 @@ class RetriesDownloader(Downloader):
                   time_start: pd.Timestamp,
                   *,
                   max_retries=5,
-                  base_sleep=5,
+                  base_sleep=20,
                   max_sleep=60
                 ) -> pd.DataFrame:
         retries = 0
@@ -119,15 +134,16 @@ class RetriesDownloader(Downloader):
 
             except TemporaryRateLimit as e:
                 retries += 1
-                logging.warning(f"{s} failed (attempt {retries}/{max_retries}): {e}")
+                logger.warning(f"{s} failed (attempt {retries}/{max_retries}): {e}")
                 if retries >= max_retries:
-                    logging.error(f"{s} permanently failed")
+                    logger.error(f"{s} permanently failed")
                     return None  # failure
+                logger.warning(f"trying again in {sleep_time}")
                 time.sleep(sleep_time)
                 sleep_time = min(sleep_time * 2, max_sleep)  # exponential backoff
 
             except DailyRateLimit as e:
-                logging.error(f"{self.provider}, daily rate limited")
+                logger.error(f"{self.provider}, daily rate limited")
                 return None  # failure
 
         return None

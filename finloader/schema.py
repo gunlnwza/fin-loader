@@ -1,21 +1,23 @@
-from __future__ import annotations
-from typing import TYPE_CHECKING
+import logging
+import pandas as pd
 
-if TYPE_CHECKING:
-    import pandas as pd
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 REQUIRED_INDEX_NAME = "time"
 REQUIRED_COLUMNS = ["open", "high", "low", "close", "volume"]
 
 
-def validate_data(df: pd.DataFrame):
+def validate_data(df):
     """Check integrity and schema correctness"""
 
     if not isinstance(df, pd.DataFrame):
+        logger.debug(f"df:\n{df}")
         raise ValueError("Invalid data type, not a pd.DataFrame")        
 
     if df.index.name != REQUIRED_INDEX_NAME \
         or not all(col in df.columns for col in REQUIRED_COLUMNS):
+        logging.error(f"Schema mismatch: \n{df}")
         raise ValueError("Schema mismatch")
     
     if df.index.tz is None:

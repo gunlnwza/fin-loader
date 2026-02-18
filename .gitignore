@@ -1,11 +1,20 @@
+# Secrets
 .env
 
+# Data
 data
 backup*
 *.csv
+
+# Logs
+logs
 *.log
 
-__pycache__
+# Python
 venv
 
+__pycache__
+.pytest_cache
+
+# Mac
 .DS_Store
