@@ -15,7 +15,7 @@ logger.setLevel(logging.DEBUG)
 
 
 class Downloader:
-    _data_dir = Path(__file__).parent / "data"
+    _data_dir = Path(__file__).parent.parent / "data"
 
     def __init__(self, provider: DataProvider):
         self.provider = provider
@@ -49,7 +49,7 @@ class Downloader:
         df.index = pd.to_datetime(df.index, utc=True)
         return df.index[-1]
 
-    def _get_time_start_utc(self, s: ForexSymbol, tf: Timeframe):
+    def _get_data_latest_utc(self, s: ForexSymbol, tf: Timeframe):
         DEFAULT_TIME_START = pd.Timestamp("2000-01-01", tz="UTC")
 
         filepath = self._get_filepath(s, tf)
@@ -64,6 +64,16 @@ class Downloader:
     # Main funcs
     ###########################################################################
 
+    def _is_data_stale(self, data_latest_utc: pd.Timestamp, tf: Timeframe):
+        now = pd.Timestamp.now(tz="UTC")
+        if not tf.is_intraday:
+            now = now.normalize()  # zero out the time if (day, week, month)
+
+        time_diff = now - data_latest_utc
+        logger.debug(f"diff: {time_diff}, rhs: {tf.timedelta}")
+
+        return time_diff > tf.timedelta
+
     def download(self, s: ForexSymbol, tf: Timeframe, **kwargs):
         """
         Orchestrate downloading process:
@@ -72,14 +82,22 @@ class Downloader:
         - Download only from latest data if file exists.
         """
 
-        logger.debug("Checking internet connection...")  # DataProvider's assumption: there is a connection
+        data_latest_utc = self._get_data_latest_utc(s, tf)
+
+        # see if download is necessary
+        if not self._is_data_stale(data_latest_utc, tf):
+            logger.info(f"'{self._get_filename(s, tf)}' is up to date")
+            return
+            
+
+        # DataProvider's assumption: there is a connection ; must respect the assumption
+        logger.debug("Checking internet connection...") 
         try:
             requests.get("https://google.com", timeout=3)
         except requests.exceptions.ConnectionError:
             raise ConnectionError("Not connected to the internet")
 
-        time_start_utc = self._get_time_start_utc(s, tf)
-        data = self._get_data(s, tf, time_start_utc, **kwargs)
+        data = self._get_data(s, tf, data_latest_utc, **kwargs)
         self._save(data, s, tf)
 
     def _get_data(self, s: ForexSymbol, tf: Timeframe, time_start_utc: pd.Timestamp) -> pd.DataFrame:

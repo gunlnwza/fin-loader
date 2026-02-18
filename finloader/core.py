@@ -1,3 +1,6 @@
+import pandas as pd
+
+
 class ForexSymbol:
     CURRENCIES = {
         'AED': 'UAE Dirham',
@@ -192,6 +195,7 @@ class ForexSymbol:
     def __hash__(self):
         return hash((self.base, self.quote))
 
+
 class Timeframe:
     """
     Supported timeframes:
@@ -207,6 +211,15 @@ class Timeframe:
     DAY = "day"
     WEEK = "week"
     MONTH = "month"
+
+    _UNIT_TO_PANDAS = {
+        SECOND: "s",
+        MINUTE: "min",
+        HOUR: "h",
+        DAY: "d",
+        WEEK: "w",
+        MONTH: "M",
+    }
 
     def __init__(self, length: int, unit: str | None = None):
         self.length = length
@@ -227,6 +240,20 @@ class Timeframe:
         if not isinstance(self.length, int):
             raise ValueError(f"Invalid Timeframe length: '{self}'")
     
+    @property
+    def timedelta(self) -> pd.Timedelta:
+        if self.unit not in self._UNIT_TO_PANDAS:
+            raise ValueError(f"Cannot convert unit to Timedelta: {self.unit}")
+
+        if self.unit == Timeframe.MONTH:
+            return pd.DateOffset(months=self.length)
+
+        return pd.Timedelta(self.length, unit=self._UNIT_TO_PANDAS[self.unit])
+
+    @property
+    def is_intraday(self) -> bool:
+        return self.unit in (Timeframe.SECOND, Timeframe.MINUTE, Timeframe.HOUR)
+
     def __repr__(self):
         return f"Timeframe({self.length}, {self.unit})"
 
