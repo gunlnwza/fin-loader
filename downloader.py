@@ -7,12 +7,14 @@ from provider import DataProvider
 
 
 class Downloader:
-    DATA_DIR = "data"
+    _data_dir = Path(__file__).parent / "data"
 
     def __init__(self, provider: DataProvider):
         self.provider = provider
 
-        self._provider_dir = Path(__file__).parent / Downloader.DATA_DIR / self.provider.name
+        Downloader._data_dir.mkdir(exist_ok=True)
+
+        self._provider_dir = Downloader._data_dir / self.provider.name
         self._provider_dir.mkdir(exist_ok=True)
 
     def _symbol_dir(self, s: ForexSymbol):

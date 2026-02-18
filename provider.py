@@ -62,14 +62,6 @@ class AlphaVantage(DataProvider):
     def __init__(self, api_key):
         super().__init__("alpha_vantage", api_key)
 
-    def _get_api_outputsize(self, time_start_utc: pd.Timestamp) -> str:
-        DIFF_DAYS_TO_DOWNLOAD_FULL = 90
-        time_end_utc = pd.Timestamp.now(tz="UTC")
-        if time_end_utc - time_start_utc >= pd.Timedelta(days=DIFF_DAYS_TO_DOWNLOAD_FULL):
-            return "full"
-        else:
-            return "compact"
-
     def _get_api_function(self, tf: Timeframe) -> str:
         functions = {
             Timeframe.DAY: 'FX_DAILY',
@@ -80,12 +72,21 @@ class AlphaVantage(DataProvider):
             raise ValueError("AlphaVantage: unsupported Timeframe")
         return functions[tf.unit]
 
+    def _get_api_outputsize(self, time_start_utc: pd.Timestamp) -> str:
+        DIFF_DAYS_TO_DOWNLOAD_FULL = 90
+
+        time_end_utc = pd.Timestamp.now(tz="UTC")
+        if time_end_utc - time_start_utc >= pd.Timedelta(days=DIFF_DAYS_TO_DOWNLOAD_FULL):
+            return "full"
+        else:
+            return "compact"
+
     def _call_api(self, s: ForexSymbol, tf: Timeframe, time_start_utc: pd.Timestamp):
         params = {
             "from_symbol": s.base,
             "to_symbol": s.quote,
-            "outputsize": self._get_api_outputsize(time_start_utc),
             "function": self._get_api_function(tf),
+            "outputsize": self._get_api_outputsize(time_start_utc),
             "datatype": "csv",
             "apikey": self.api_key
         }
@@ -100,11 +101,14 @@ class AlphaVantage(DataProvider):
         return res
     
     def _normalize(self, res) -> pd.DataFrame:
-        df = pd.read_csv(StringIO(res.text), index_col="timestamp", parse_dates=True)
+        df = pd.read_csv(StringIO(res.text), index_col="timestamp")
+        logging.debug(f"AlphaVantage, df: \n{df}")
+        df.index = pd.to_datetime(df.index, utc=True)
+        df.index.name = "time"
         if "volume" not in df.columns:
             df["volume"] = 0
-        df.index.name = "time"
         df = df.sort_index()
+        logging.debug(f"AlphaVantage, df: \n{df}")
         return df
 
 
