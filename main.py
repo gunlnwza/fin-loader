@@ -1,10 +1,12 @@
 import argparse
 import os
+import sys
 import logging
 import time
 
 from dotenv import load_dotenv
 import requests
+import urllib3
 
 from provider import AlphaVantage, Massive, TwelveData, ForexSymbol, Timeframe
 from downloader import Downloader
@@ -23,7 +25,15 @@ def multiple_retries_download(downloader: Downloader, s: ForexSymbol, tf: Timefr
             downloader.download(s, tf)
             break  # success → exit retry loop
 
-        except requests.exceptions.ConnectionError as e:
+        except (
+            ValueError,
+            requests.exceptions.ConnectionError,
+            urllib3.exceptions.MaxRetryError
+        ) as e:  # TODO: revise error handling
+            if "limit" in str(e).lower():
+                logging.error(f"Got rate limited by {downloader.provider}")
+                sys.exit(1)
+
             retries += 1
             logging.warning(
                 f"{base}/{quote} failed (attempt {retries}/{MAX_RETRIES}): {e}"
@@ -41,7 +51,7 @@ if __name__ == "__main__":
     load_dotenv()
     logging.basicConfig(
         filename='app.log',
-        filemode='w',
+        filemode='a',
         level=logging.DEBUG,
         format='%(asctime)s %(levelname)-8s: %(message)s',
         datefmt='%m/%d/%Y %I:%M:%S'
@@ -49,11 +59,14 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("provider")
-    parser.add_argument("base", help='Base currency or "major"')
-    parser.add_argument("quote", nargs="?", help="Quote currency (omit if using major)")
-    parser.add_argument("tf_length", type=int)
-    parser.add_argument("tf_unit")
+    parser.add_argument("--major", action="store_true")
+    parser.add_argument("--base")
+    parser.add_argument("--quote")
+    parser.add_argument("--tf_length", type=int, required=True)
+    parser.add_argument("--tf_unit", required=True)
     args = parser.parse_args()
+
+    logging.info("Downloading data...")
 
     if args.provider == "alpha_vantage":
         provider = AlphaVantage(os.getenv("ALPHA_VANTAGE_API_KEY"))
@@ -67,7 +80,7 @@ if __name__ == "__main__":
     downloader = Downloader(provider)
     tf = Timeframe(args.tf_length, args.tf_unit)
 
-    if args.base.lower() == "major":
+    if args.major:
         major_pairs = [
             ("EUR", "USD"),
             ("GBP", "USD"),

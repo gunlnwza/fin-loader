@@ -62,9 +62,9 @@ class Downloader:
         if not filepath.exists():
             return DEFAULT_TIME_START
 
-        last_time_in_file = self._last_time_in_file(filepath)
-        logging.debug(f"last_time_in_file: {last_time_in_file}")
-        return last_time_in_file
+        time_start = self._last_time_in_file(filepath)
+        logging.debug(f"time_start: {time_start}")
+        return time_start
 
     def download(self, s: ForexSymbol, tf: Timeframe):
         """

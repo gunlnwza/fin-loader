@@ -17,13 +17,19 @@ class DataProvider(ABC):
         self.name = name
         self.api_key = api_key
 
-    def get(self, symbol: ForexSymbol, tf: Timeframe, time_start_utc: pd.Timestamp) -> pd.DataFrame:
+    def __str__(self):
+        return self.name
+    
+    def __repr__(self):
+        return self.__class__.__name__
+
+    def get(self, s: ForexSymbol, tf: Timeframe, time_start_utc: pd.Timestamp) -> pd.DataFrame:
         """
         time_start_utc must be in UTC, every pd.Timestamp must be in UTC!
         """
         self._validate_input(time_start_utc)
-        logging.info(f"Calling {self.name} API")
-        raw = self._call_api(symbol, tf, time_start_utc)
+        logging.info(f"Calling {self.name} API for {s}, {tf}, {time_start_utc}")
+        raw = self._call_api(s, tf, time_start_utc)
         df = self._normalize(raw)
         return self._validate_schema(df)
 
@@ -196,8 +202,8 @@ class TwelveData(DataProvider):
         return res
 
     def _normalize(self, res):
-        # logging.debug("TwelveData._normalize() | res.text")
-        # logging.debug(f"\n{res.text}")
+        logging.debug("TwelveData._normalize() | res.text")
+        logging.debug(f"\n{res.text}")
         df = pd.read_csv(
             StringIO(res.text),
             sep=";",
