@@ -63,14 +63,11 @@ class SymbolFile:
 
 
 class Downloader:
-    def __init__(self, provider: DataProvider, data_dir: Path | None = None):
+    def __init__(self, provider: DataProvider, data_dir: str):
+        project_root = Path(__file__).resolve().parents[1]
+
         self.provider = provider
-
-        if data_dir is None:
-            project_root = Path(__file__).resolve().parents[1]
-            data_dir = project_root / "data"
-
-        self.provider_dir = data_dir / self.provider.name
+        self.provider_dir = project_root / data_dir / self.provider.name
         self.provider_dir.mkdir(parents=True, exist_ok=True)
 
     def download(self, symbol: ForexSymbol, tf: Timeframe):
@@ -94,10 +91,10 @@ class Downloader:
     def _save(self, data: pd.DataFrame, symbol_file: SymbolFile):
         validate_data(data)
         if symbol_file.exists():
-            logger.info(f"Appending to '{symbol_file}'")
+            logger.debug(f"Appending to '{symbol_file}'")
             old_len, appended = self._append_data(data, symbol_file)
         else:
-            logger.info(f"Create new file '{symbol_file}'")
+            logger.debug(f"Create new file '{symbol_file}'")
             old_len, appended = 0, data
         validate_data(appended)
 

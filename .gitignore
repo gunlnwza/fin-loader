@@ -2,6 +2,7 @@
 .env
 
 # Data
+.data
 data
 backup*
 *.csv
@@ -12,6 +13,7 @@ logs
 *.log
 
 # Python
+.venv
 venv
 
 __pycache__

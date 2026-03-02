@@ -1,11 +1,12 @@
+import os
 import sys
 import argparse
 import logging
-from logging.handlers import RotatingFileHandler
-from rich.logging import RichHandler
 from pathlib import Path
+from logging.handlers import RotatingFileHandler
 
 from dotenv import load_dotenv
+from rich.logging import RichHandler
 
 from finloader.core import ForexSymbol, Timeframe
 from finloader.provider import DataProvider
@@ -94,7 +95,7 @@ def main():
         s = ForexSymbol(args.base, args.quote)
         tf = Timeframe(args.tf_length, args.tf_unit)
 
-        downloader = Downloader(provider)
+        downloader = Downloader(provider, os.getenv("DATA_DIR"))
         downloader.download(s, tf)
     except KeyboardInterrupt:
         pass
